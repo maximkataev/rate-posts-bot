@@ -45,8 +45,10 @@ async def cmd_help(message: Message):
 3. Используй этот ID в команде /add_channel
 
 <b>Настройка канала:</b>
-Бот должен быть добавлен в канал как администратор с правами:
-• Публикация сообщений (для отправки оценок)
+1. Добавь бота администратором в канал
+2. Привяжи к каналу группу обсуждений (настройки канала → «Обсуждение»)
+3. Добавь бота в эту группу (лучше админом)
+Рецензии публикуются комментариями к постам
 
 <b>Что оценивает бот:</b>
 • Текстовые посты
@@ -61,9 +63,10 @@ async def cmd_help(message: Message):
 • Стикеры
 
 <b>Модели для оценки:</b>
-• OpenAI GPT-4
+• OpenAI GPT
 • Anthropic Claude
 • Google Gemini
+• DeepSeek
 
 По всем вопросам пиши @maksimkin
 """
@@ -101,14 +104,31 @@ async def cmd_add_channel(message: Message):
                 )
                 return
             
-            # Check posting permissions
-            if not bot_member.can_post_messages:
+            # Рецензии публикуются комментариями — нужна привязанная
+            # группа обсуждений, и бот должен в ней состоять
+            if not chat.linked_chat_id:
                 await message.answer(
-                    f"⚠️ У меня нет прав на публикацию в канале {chat.title}\n"
-                    "Дай мне права на публикацию сообщений"
+                    f"⚠️ У канала {chat.title} нет группы обсуждений — "
+                    "мне некуда писать комментарии.\n"
+                    "Привяжи группу: настройки канала → «Обсуждение», "
+                    "затем повтори /add_channel"
                 )
                 return
-            
+
+            try:
+                group_member = await message.bot.get_chat_member(
+                    chat.linked_chat_id, message.bot.id
+                )
+                if group_member.status not in ["administrator", "creator", "member"]:
+                    raise ValueError("bot is not in discussion group")
+            except Exception:
+                await message.answer(
+                    f"⚠️ Я не состою в группе обсуждений канала {chat.title}.\n"
+                    "Добавь меня в неё (лучше админом), затем повтори /add_channel"
+                )
+                return
+
+
         except Exception as e:
             await message.answer(
                 f"❌ Не могу получить доступ к каналу\n"
@@ -124,7 +144,7 @@ async def cmd_add_channel(message: Message):
             await message.answer(
                 f"✅ Канал <b>{chat.title}</b> добавлен!\n"
                 f"ID: <code>{channel_id}</code>\n\n"
-                "Теперь я буду оценивать новые посты в этом канале",
+                "Теперь я буду оценивать новые посты в комментариях к ним",
                 parse_mode=ParseMode.HTML
             )
             logger.info(f"User {message.from_user.id} added channel {channel_id}")

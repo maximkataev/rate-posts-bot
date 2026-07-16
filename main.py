@@ -29,10 +29,11 @@ async def main():
     
     try:
         # Start bot
-        # ВАЖНО: явно указываем channel_post для получения обновлений из каналов
+        # Посты каналов приходят автофорвардами в группу обсуждений —
+        # это обычные message-апдейты, channel_post больше не нужен
         await dp.start_polling(
             bot,
-            allowed_updates=["message", "channel_post", "edited_channel_post"]
+            allowed_updates=["message"]
         )
     except Exception as e:
         logger.error(f"Bot crashed: {e}")

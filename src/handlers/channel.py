@@ -117,43 +117,52 @@ async def extract_post_content(message: Message, bot) -> tuple[Optional[str], Op
     return text, media_data if media_data else None
 
 
-async def should_process_message(message: Message) -> bool:
+def get_origin_channel_id(message: Message) -> Optional[int]:
     """
-    Check if message should be processed.
+    Get source channel id from an automatic forward in the discussion group.
+
+    Returns:
+        Channel id or None if message is not an auto-forward from a channel
+    """
+    origin = message.forward_origin
+    chat = getattr(origin, "chat", None)
+    return chat.id if chat else None
+
+
+async def should_process_forward(message: Message) -> bool:
+    """
+    Check if auto-forwarded channel post should be evaluated.
 
     Returns:
         True if message should be evaluated
     """
-    # Only process channel posts
-    if not message.chat.type == "channel":
-        logger.debug(f"Skipping non-channel message (type: {message.chat.type})")
+    channel_id = get_origin_channel_id(message)
+    if channel_id is None:
+        logger.debug("Auto-forward without channel origin, skipping")
         return False
 
-    # Check if channel is monitored
-    is_monitored = await redis_service.is_channel_monitored(message.chat.id)
+    # Check if source channel is monitored
+    is_monitored = await redis_service.is_channel_monitored(channel_id)
     if not is_monitored:
-        logger.info(
-            f"Ignoring post from non-monitored channel {message.chat.id} "
-            f"(title: {message.chat.title})"
-        )
+        logger.info(f"Ignoring post from non-monitored channel {channel_id}")
         return False
 
     # Check if channel is enabled
-    config = await redis_service.get_channel_config(message.chat.id)
+    config = await redis_service.get_channel_config(channel_id)
     if not config or not config.get("enabled", True):
-        logger.info(f"Channel {message.chat.id} is disabled")
+        logger.info(f"Channel {channel_id} is disabled")
         return False
 
     # Only process specific content types
     if message.poll:
         # Process polls
-        logger.debug(f"Processing poll from channel {message.chat.id}")
+        logger.debug(f"Processing poll from channel {channel_id}")
         return True
 
     if message.text or message.caption or message.photo or message.video:
         # Process text posts (with or without images/videos)
         logger.debug(
-            f"Processing post from channel {message.chat.id}: "
+            f"Processing post from channel {channel_id}: "
             f"text={bool(message.text or message.caption)}, "
             f"photo={bool(message.photo)}, video={bool(message.video)}"
         )
@@ -161,30 +170,34 @@ async def should_process_message(message: Message) -> bool:
 
     # Ignore other types (audio, documents, stickers, etc.)
     logger.debug(
-        f"Ignoring unsupported content type in channel {message.chat.id}: "
+        f"Ignoring unsupported content type from channel {channel_id}: "
         f"{message.content_type}"
     )
     return False
 
 
-@router.channel_post()
+# Пост канала прилетает в привязанную группу обсуждений автофорвардом;
+# реплай на него публикуется как комментарий под постом.
+# Для этого бот должен состоять в группе обсуждений (лучше админом).
+@router.message(F.is_automatic_forward == True)
 async def handle_channel_post(message: Message):
-    """Handle new posts in monitored channels."""
+    """Evaluate channel post and reply in comments (discussion group)."""
     try:
         # Check if we should process this message
-        if not await should_process_message(message):
+        if not await should_process_forward(message):
             return
 
+        channel_id = get_origin_channel_id(message)
         logger.info(
-            f"Processing post from channel {message.chat.id} "
-            f"(message_id: {message.message_id})"
+            f"Processing post from channel {channel_id} "
+            f"(discussion message_id: {message.message_id})"
         )
 
         # Get channel config for custom prompt
-        config = await redis_service.get_channel_config(message.chat.id)
+        config = await redis_service.get_channel_config(channel_id)
         custom_prompt = config.get("custom_prompt") if config else None
 
-        # Extract content
+        # Extract content (the auto-forward carries the same text/media as the post)
         if message.poll:
             # Handle poll
             poll = message.poll
@@ -213,15 +226,15 @@ async def handle_channel_post(message: Message):
             # Format and send evaluation
             evaluation_text = llm_service.format_evaluation_response(results)
 
-            # Send final result
+            # Reply to the auto-forward = comment under the channel post
             await message.reply(
                 evaluation_text,
                 parse_mode=ParseMode.HTML
             )
 
             logger.info(
-                f"Successfully evaluated post {message.message_id} "
-                f"in channel {message.chat.id}"
+                f"Successfully evaluated post from channel {channel_id} "
+                f"(comment in chat {message.chat.id})"
             )
 
         except Exception as e:
@@ -229,18 +242,6 @@ async def handle_channel_post(message: Message):
             await message.reply(
                 "❌ Произошла ошибка при оценке поста"
             )
-    
+
     except Exception as e:
         logger.error(f"Error handling channel post: {e}")
-
-
-@router.channel_post(F.content_type.in_({
-    "video", "audio", "document", "sticker", "animation",
-    "voice", "video_note"
-}))
-async def handle_unsupported_content(message: Message):
-    """Handle unsupported content types - just log and ignore."""
-    logger.debug(
-        f"Ignoring unsupported content type {message.content_type} "
-        f"in channel {message.chat.id}"
-    )
