@@ -24,10 +24,7 @@ async def test_evaluation():
     print("=" * 60)
     
     # Evaluate
-    results = await llm_service.evaluate_post(
-        content=test_post,
-        image_url=None
-    )
+    results = await llm_service.evaluate_post(content=test_post)
     
     # Print results
     print("\n📊 Evaluation Results:")

@@ -6,6 +6,7 @@ from aiogram.types import Message
 from aiogram.enums import ParseMode
 
 from src.services.redis_service import redis_service
+from src.filters import IsAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,8 @@ async def cmd_start(message: Message):
         "Добавь меня администратором в свой канал с правами на публикацию сообщений, "
         "и я буду оценивать новые посты с помощью нескольких AI моделей.\n\n"
         "Команды:\n"
-        "/add_channel <channel_id> - Добавить канал для мониторинга\n"
-        "/remove_channel <channel_id> - Удалить канал\n"
+        "/add_channel &lt;channel_id&gt; - Добавить канал для мониторинга\n"
+        "/remove_channel &lt;channel_id&gt; - Удалить канал\n"
         "/list_channels - Список отслеживаемых каналов\n"
         "/help - Справка"
     )
@@ -34,8 +35,8 @@ async def cmd_help(message: Message):
 📚 <b>Справка по использованию</b>
 
 <b>Основные команды:</b>
-/add_channel <channel_id> - Добавить канал для мониторинга
-/remove_channel <channel_id> - Удалить канал
+/add_channel &lt;channel_id&gt; - Добавить канал для мониторинга
+/remove_channel &lt;channel_id&gt; - Удалить канал
 /list_channels - Список отслеживаемых каналов
 
 <b>Как получить ID канала:</b>
@@ -70,6 +71,15 @@ async def cmd_help(message: Message):
 
 
 @router.message(Command("add_channel"))
+async def cmd_add_channel_unauthorized(message: Message):
+    """Handle /add_channel from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
+
+
+@router.message(Command("add_channel"), IsAdmin())
 async def cmd_add_channel(message: Message):
     """Handle /add_channel command."""
     try:
@@ -141,6 +151,15 @@ async def cmd_add_channel(message: Message):
 
 
 @router.message(Command("remove_channel"))
+async def cmd_remove_channel_unauthorized(message: Message):
+    """Handle /remove_channel from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
+
+
+@router.message(Command("remove_channel"), IsAdmin())
 async def cmd_remove_channel(message: Message):
     """Handle /remove_channel command."""
     try:
@@ -187,6 +206,15 @@ async def cmd_remove_channel(message: Message):
 
 
 @router.message(Command("list_channels"))
+async def cmd_list_channels_unauthorized(message: Message):
+    """Handle /list_channels from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
+
+
+@router.message(Command("list_channels"), IsAdmin())
 async def cmd_list_channels(message: Message):
     """Handle /list_channels command."""
     try:

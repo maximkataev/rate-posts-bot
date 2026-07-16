@@ -12,20 +12,35 @@ if ! command -v doppler &> /dev/null; then
     exit 1
 fi
 
+# Определение команды docker compose (новая версия использует "docker compose" без дефиса)
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "❌ Docker Compose не установлен."
+    echo "   Установите Docker Desktop: https://www.docker.com/products/docker-desktop"
+    echo ""
+    echo "   Или запустите Redis вручную:"
+    echo "   brew install redis && brew services start redis"
+    exit 1
+fi
+
 # Проверка Redis через Docker Compose
 echo "📦 Проверка Redis..."
-if ! docker-compose ps redis | grep -q "Up"; then
+if ! $DOCKER_COMPOSE ps redis 2>/dev/null | grep -q "Up"; then
     echo "▶️  Запуск Redis через Docker Compose..."
-    docker-compose up -d redis
+    $DOCKER_COMPOSE up -d redis
     echo "⏳ Ожидание запуска Redis..."
     sleep 3
 fi
 
 # Проверка подключения к Redis
-if docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; then
+if $DOCKER_COMPOSE exec -T redis redis-cli ping > /dev/null 2>&1; then
     echo "✅ Redis работает"
 else
-    echo "❌ Redis не отвечает. Проверьте docker-compose."
+    echo "❌ Redis не отвечает."
+    echo "   Попробуйте: $DOCKER_COMPOSE restart redis"
     exit 1
 fi
 

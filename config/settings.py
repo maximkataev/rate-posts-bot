@@ -22,24 +22,29 @@ class Settings(BaseSettings):
     
     # Telegram
     telegram_bot_token: str
+    telegram_admin_id: int = 71488343
     
     # Redis
-    redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_host: str
+    redis_port: int
     redis_db: int = 0
     redis_password: Optional[str] = None
     
     # OpenAI
     openai_api_key: str
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-5.4"
     
     # Anthropic
     anthropic_api_key: str
-    anthropic_model: str = "claude-sonnet-4-20250514"
-    
+    anthropic_model: str = "claude-sonnet-5"
+
     # Google Gemini
     google_api_key: str
-    gemini_model: str = "gemini-2.0-flash-exp"
+    gemini_model: str = "gemini-flash-latest"
+
+    # DeepSeek (OpenAI-совместимый API; бот работает и без ключа — просто пропускает DeepSeek)
+    deepseek_api_key: Optional[str] = None
+    deepseek_model: str = "deepseek-chat"
     
     # OpenRouter (альтернатива для доступа к разным моделям)
     openrouter_api_key: Optional[str] = None
@@ -72,7 +77,7 @@ class Settings(BaseSettings):
 
                 secrets = doppler.secrets.list(
                     project=os.getenv("DOPPLER_PROJECT", "telegram-bot"),
-                    config=os.getenv("DOPPLER_CONFIG", "dev")
+                    config=os.getenv("DOPPLER_CONFIG", "prd")
                 )
 
                 # Convert Doppler secrets to dict
