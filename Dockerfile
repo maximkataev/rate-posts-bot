@@ -4,11 +4,12 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies + Doppler CLI (secrets are injected at runtime via DOPPLER_TOKEN)
+# gpgv (не gnupg!) — в Debian trixie это отдельный пакет, инсталлятор Doppler проверяет подпись именно им
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
     curl \
-    gnupg \
+    gpgv \
     && curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
