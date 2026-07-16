@@ -70,15 +70,6 @@ async def cmd_help(message: Message):
     await message.answer(help_text, parse_mode=ParseMode.HTML)
 
 
-@router.message(Command("add_channel"))
-async def cmd_add_channel_unauthorized(message: Message):
-    """Handle /add_channel from unauthorized users."""
-    await message.answer(
-        "❌ У вас нет прав для использования этой команды.\n"
-        "Этот бот доступен только для администратора."
-    )
-
-
 @router.message(Command("add_channel"), IsAdmin())
 async def cmd_add_channel(message: Message):
     """Handle /add_channel command."""
@@ -150,15 +141,6 @@ async def cmd_add_channel(message: Message):
         await message.answer(f"❌ Произошла ошибка: {e}")
 
 
-@router.message(Command("remove_channel"))
-async def cmd_remove_channel_unauthorized(message: Message):
-    """Handle /remove_channel from unauthorized users."""
-    await message.answer(
-        "❌ У вас нет прав для использования этой команды.\n"
-        "Этот бот доступен только для администратора."
-    )
-
-
 @router.message(Command("remove_channel"), IsAdmin())
 async def cmd_remove_channel(message: Message):
     """Handle /remove_channel command."""
@@ -205,15 +187,6 @@ async def cmd_remove_channel(message: Message):
         await message.answer(f"❌ Произошла ошибка: {e}")
 
 
-@router.message(Command("list_channels"))
-async def cmd_list_channels_unauthorized(message: Message):
-    """Handle /list_channels from unauthorized users."""
-    await message.answer(
-        "❌ У вас нет прав для использования этой команды.\n"
-        "Этот бот доступен только для администратора."
-    )
-
-
 @router.message(Command("list_channels"), IsAdmin())
 async def cmd_list_channels(message: Message):
     """Handle /list_channels command."""
@@ -249,3 +222,33 @@ async def cmd_list_channels(message: Message):
     except Exception as e:
         logger.error(f"Error listing channels: {e}")
         await message.answer(f"❌ Произошла ошибка: {e}")
+
+
+# Fallback-хендлеры для не-админов: регистрируются ПОСЛЕ IsAdmin-хендлеров,
+# иначе aiogram отдаёт команду первому совпавшему и админ тоже получает отказ.
+
+@router.message(Command("add_channel"))
+async def cmd_add_channel_unauthorized(message: Message):
+    """Handle /add_channel from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
+
+
+@router.message(Command("remove_channel"))
+async def cmd_remove_channel_unauthorized(message: Message):
+    """Handle /remove_channel from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
+
+
+@router.message(Command("list_channels"))
+async def cmd_list_channels_unauthorized(message: Message):
+    """Handle /list_channels from unauthorized users."""
+    await message.answer(
+        "❌ У вас нет прав для использования этой команды.\n"
+        "Этот бот доступен только для администратора."
+    )
