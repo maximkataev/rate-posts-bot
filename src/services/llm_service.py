@@ -11,7 +11,7 @@ from tenacity import (
     AsyncRetrying,
     before_sleep_log,
     stop_after_attempt,
-    wait_exponential,
+    wait_fixed,
 )
 
 from config.settings import settings
@@ -60,8 +60,8 @@ class LLMService:
 
     async def _call_with_retries(self, make_request):
         """
-        Выполняет запрос к LLM с ретраями: до 5 попыток,
-        экспоненциальная пауза 1–10 сек между ними.
+        Выполняет запрос к LLM с ретраями: до 5 попыток
+        с паузой 1 секунда между ними.
 
         Args:
             make_request: колбэк без аргументов, возвращающий awaitable запроса
@@ -71,7 +71,7 @@ class LLMService:
         """
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(5),
-            wait=wait_exponential(multiplier=1, min=1, max=10),
+            wait=wait_fixed(1),
             reraise=True,
             before_sleep=before_sleep_log(logger, logging.WARNING),
         ):
@@ -464,8 +464,13 @@ class LLMService:
         # Add individual evaluations
         for result in successful_results:
             lines.append(f"{result.model_name}")
-            if result.comment and len(result.comment) < 300:
-                lines.append(f"💬 {result.comment}")
+            if result.comment:
+                # Длинные ответы обрезаем, а не прячем —
+                # иначе модель остаётся в списке без текста
+                comment = result.comment.strip()
+                if len(comment) > 350:
+                    comment = comment[:350].rstrip() + "…"
+                lines.append(f"💬 {comment}")
             lines.append("")
         
         # Add failed models info
