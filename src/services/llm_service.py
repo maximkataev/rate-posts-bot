@@ -465,20 +465,19 @@ class LLMService:
         for result in successful_results:
             lines.append(f"{result.model_name}")
             if result.comment:
-                # Длинные ответы обрезаем, а не прячем —
-                # иначе модель остаётся в списке без текста
-                comment = result.comment.strip()
-                if len(comment) > 350:
-                    comment = comment[:350].rstrip() + "…"
-                lines.append(f"💬 {comment}")
+                lines.append(f"💬 {result.comment.strip()}")
             lines.append("")
         
         # Add failed models info
         failed_results = [r for r in results if not r.success]
         if failed_results:
             lines.append(f"⚠️ Не ответили: {', '.join(r.model_name for r in failed_results)}")
-        
-        return "\n".join(lines)
+
+        text = "\n".join(lines)
+        # Телеграм не принимает сообщения длиннее 4096 символов
+        if len(text) > 4000:
+            text = text[:4000].rstrip() + "…"
+        return text
 
 
 # Global instance
