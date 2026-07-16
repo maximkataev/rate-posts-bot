@@ -7,6 +7,12 @@ import httpx
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from google import genai
+from tenacity import (
+    AsyncRetrying,
+    before_sleep_log,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from config.settings import settings
 from config.prompts import get_prompt
@@ -51,6 +57,26 @@ class LLMService:
     async def close(self):
         """Close HTTP clients."""
         await self.http_client.aclose()
+
+    async def _call_with_retries(self, make_request):
+        """
+        Выполняет запрос к LLM с ретраями: до 5 попыток,
+        экспоненциальная пауза 1–10 сек между ними.
+
+        Args:
+            make_request: колбэк без аргументов, возвращающий awaitable запроса
+
+        Returns:
+            Ответ API после первой успешной попытки
+        """
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(5),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            reraise=True,
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+        ):
+            with attempt:
+                return await make_request()
     
     def _format_prompt(self, content: str, llm_name: str, custom_prompt: Optional[str] = None) -> str:
         """
@@ -122,12 +148,14 @@ class LLMService:
 
             messages = [{"role": "user", "content": message_content}]
 
-            response = await self.openai_client.chat.completions.create(
-                model=settings.openai_model,
-                messages=messages,
-                # gpt-5.x не принимает max_tokens/temperature —
-                # только max_completion_tokens и дефолтную температуру
-                max_completion_tokens=600
+            response = await self._call_with_retries(
+                lambda: self.openai_client.chat.completions.create(
+                    model=settings.openai_model,
+                    messages=messages,
+                    # gpt-5.x не принимает max_tokens/temperature —
+                    # только max_completion_tokens и дефолтную температуру
+                    max_completion_tokens=600
+                )
             )
 
             result_text = response.choices[0].message.content
@@ -178,15 +206,17 @@ class LLMService:
             # Add text prompt
             message_content.append({"type": "text", "text": prompt})
 
-            message = await self.anthropic_client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=500,
-                # claude-sonnet-5 по умолчанию включает adaptive thinking,
-                # которое съедает max_tokens — для короткой оценки отключаем
-                thinking={"type": "disabled"},
-                messages=[
-                    {"role": "user", "content": message_content}
-                ]
+            message = await self._call_with_retries(
+                lambda: self.anthropic_client.messages.create(
+                    model=settings.anthropic_model,
+                    max_tokens=500,
+                    # claude-sonnet-5 по умолчанию включает adaptive thinking,
+                    # которое съедает max_tokens — для короткой оценки отключаем
+                    thinking={"type": "disabled"},
+                    messages=[
+                        {"role": "user", "content": message_content}
+                    ]
+                )
             )
 
             result_text = message.content[0].text
@@ -236,11 +266,13 @@ class LLMService:
 
                 logger.info(f"Gemini: Added {len(media_data)} images to request")
 
-            # Use new API - generate_content is async
-            response = await asyncio.to_thread(
-                self.gemini_client.models.generate_content,
-                model=settings.gemini_model,
-                contents=parts
+            # Use new API - generate_content is sync, run in thread
+            response = await self._call_with_retries(
+                lambda: asyncio.to_thread(
+                    self.gemini_client.models.generate_content,
+                    model=settings.gemini_model,
+                    contents=parts
+                )
             )
 
             result_text = response.text
@@ -286,11 +318,13 @@ class LLMService:
                     f"DeepSeek: skipping {len(media_data)} images (no vision support)"
                 )
 
-            response = await self.deepseek_client.chat.completions.create(
-                model=settings.deepseek_model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
-                temperature=0.7
+            response = await self._call_with_retries(
+                lambda: self.deepseek_client.chat.completions.create(
+                    model=settings.deepseek_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=500,
+                    temperature=0.7
+                )
             )
 
             result_text = response.choices[0].message.content
