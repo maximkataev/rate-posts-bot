@@ -26,9 +26,5 @@ RUN useradd -m -u 1000 botuser && \
 
 USER botuser
 
-# Health check (REDIS_HOST/REDIS_PORT задаются в docker-compose окружении)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import os, redis; redis.Redis(host=os.environ.get('REDIS_HOST', 'redis'), port=int(os.environ.get('REDIS_PORT', '6379'))).ping()" || exit 1
-
 # Run the bot with secrets from Doppler
 CMD ["doppler", "run", "--", "python", "main.py"]

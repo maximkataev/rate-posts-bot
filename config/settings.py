@@ -22,14 +22,9 @@ class Settings(BaseSettings):
     
     # Telegram
     telegram_bot_token: str
-    telegram_admin_id: int = 71488343
-    
-    # Redis
-    redis_host: str
-    redis_port: int
-    redis_db: int = 0
-    redis_password: Optional[str] = None
-    
+    # Канал, посты которого оцениваем: @brutalcomrade («Неуспешный канал»)
+    telegram_channel_id: int = -1001243433885
+
     # OpenAI
     openai_api_key: str
     openai_model: str = "gpt-5.4"

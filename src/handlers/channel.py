@@ -8,7 +8,7 @@ from aiogram.types import Message
 from aiogram.enums import ParseMode
 from PIL import Image
 
-from src.services.redis_service import redis_service
+from config.settings import settings
 from src.services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
@@ -141,16 +141,9 @@ async def should_process_forward(message: Message) -> bool:
         logger.debug("Auto-forward without channel origin, skipping")
         return False
 
-    # Check if source channel is monitored
-    is_monitored = await redis_service.is_channel_monitored(channel_id)
-    if not is_monitored:
+    # Only the configured channel is monitored
+    if channel_id != settings.telegram_channel_id:
         logger.info(f"Ignoring post from non-monitored channel {channel_id}")
-        return False
-
-    # Check if channel is enabled
-    config = await redis_service.get_channel_config(channel_id)
-    if not config or not config.get("enabled", True):
-        logger.info(f"Channel {channel_id} is disabled")
         return False
 
     # Only process specific content types
@@ -193,10 +186,6 @@ async def handle_channel_post(message: Message):
             f"(discussion message_id: {message.message_id})"
         )
 
-        # Get channel config for custom prompt
-        config = await redis_service.get_channel_config(channel_id)
-        custom_prompt = config.get("custom_prompt") if config else None
-
         # Extract content (the auto-forward carries the same text/media as the post)
         if message.poll:
             # Handle poll
@@ -219,8 +208,7 @@ async def handle_channel_post(message: Message):
         try:
             results = await llm_service.evaluate_post(
                 content=content or "Пост без текста, только медиа",
-                media_data=media_data,
-                custom_prompt=custom_prompt
+                media_data=media_data
             )
 
             # Format and send evaluation
