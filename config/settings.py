@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # Google Gemini
     google_api_key: str
-    gemini_model: str = "gemini-flash-latest"
+    gemini_model: str = "gemini-3.1-flash-lite"
 
     # DeepSeek (OpenAI-совместимый API; бот работает и без ключа — просто пропускает DeepSeek)
     deepseek_api_key: Optional[str] = None
