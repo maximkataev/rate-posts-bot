@@ -7,6 +7,7 @@ import httpx
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from google import genai
+from google.genai import types as genai_types
 from tenacity import (
     AsyncRetrying,
     before_sleep_log,
@@ -116,9 +117,15 @@ class LLMService:
                     if match:
                         score = int(match.group(1))
                         score = min(max(score, 1), 10)  # Clamp to 1-10
+                        # модели с веб-поиском иногда пишут служебный текст
+                        # («проверил, факт подтвердился») до строки с оценкой —
+                        # отрезаем всё, что идёт раньше неё
+                        idx = response.find(line)
+                        if idx > 0:
+                            comment = response[idx:].strip()
                         break
-            
-            return score, response
+
+            return score, comment
         except Exception as e:
             logger.warning(f"Failed to parse evaluation: {e}")
             return None, response
@@ -133,32 +140,30 @@ class LLMService:
         try:
             prompt = self._format_prompt(content, "openai", custom_prompt)
 
-            message_content = [{"type": "text", "text": prompt}]
+            input_content = [{"type": "input_text", "text": prompt}]
 
             # Add images if provided (base64 format)
             if media_data:
                 for media in media_data:
-                    message_content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{media['media_type']};base64,{media['base64']}"
-                        }
+                    input_content.append({
+                        "type": "input_image",
+                        "image_url": f"data:{media['media_type']};base64,{media['base64']}"
                     })
                 logger.info(f"OpenAI: Added {len(media_data)} images to request")
 
-            messages = [{"role": "user", "content": message_content}]
-
+            # Responses API вместо Chat Completions: веб-поиск для gpt-5.x
+            # доступен только здесь. max_output_tokens включает и reasoning,
+            # и поисковые запросы, поэтому лимит с запасом
             response = await self._call_with_retries(
-                lambda: self.openai_client.chat.completions.create(
+                lambda: self.openai_client.responses.create(
                     model=settings.openai_model,
-                    messages=messages,
-                    # gpt-5.x не принимает max_tokens/temperature —
-                    # только max_completion_tokens и дефолтную температуру
-                    max_completion_tokens=600
+                    input=[{"role": "user", "content": input_content}],
+                    tools=[{"type": "web_search"}],
+                    max_output_tokens=2000
                 )
             )
 
-            result_text = response.choices[0].message.content
+            result_text = response.output_text
             score, comment = self._parse_evaluation(result_text)
 
             return EvaluationResult(
@@ -209,17 +214,31 @@ class LLMService:
             message = await self._call_with_retries(
                 lambda: self.anthropic_client.messages.create(
                     model=settings.anthropic_model,
-                    max_tokens=500,
+                    # запас на поисковые запросы: текст запросов к web_search
+                    # тоже считается выходными токенами
+                    max_tokens=1024,
                     # claude-sonnet-5 по умолчанию включает adaptive thinking,
                     # которое съедает max_tokens — для короткой оценки отключаем
                     thinking={"type": "disabled"},
+                    # серверный веб-поиск: выполняется на стороне Anthropic,
+                    # max_uses ограничивает число запросов на одну оценку
+                    tools=[{
+                        "type": "web_search_20260209",
+                        "name": "web_search",
+                        "max_uses": 3,
+                    }],
                     messages=[
                         {"role": "user", "content": message_content}
                     ]
                 )
             )
 
-            result_text = message.content[0].text
+            # с веб-поиском ответ состоит из нескольких блоков
+            # (server_tool_use, результаты поиска, текст с цитатами) —
+            # собираем только текстовые
+            result_text = "".join(
+                block.text for block in message.content if block.type == "text"
+            )
             score, comment = self._parse_evaluation(result_text)
 
             return EvaluationResult(
@@ -267,13 +286,38 @@ class LLMService:
                 logger.info(f"Gemini: Added {len(media_data)} images to request")
 
             # Use new API - generate_content is sync, run in thread
-            response = await self._call_with_retries(
-                lambda: asyncio.to_thread(
+            def _generate(with_search: bool):
+                config = None
+                if with_search:
+                    config = genai_types.GenerateContentConfig(
+                        tools=[genai_types.Tool(
+                            google_search=genai_types.GoogleSearch()
+                        )]
+                    )
+                return asyncio.to_thread(
                     self.gemini_client.models.generate_content,
                     model=settings.gemini_model,
-                    contents=parts
+                    contents=parts,
+                    config=config,
                 )
-            )
+
+            # Grounding with Google Search — модель сама решает, когда искать.
+            # Поиск оплачивается отдельно: без биллинга ключ получает
+            # 429 RESOURCE_EXHAUSTED — тогда повторяем запрос без поиска
+            try:
+                response = await self._call_with_retries(
+                    lambda: _generate(with_search=True)
+                )
+            except Exception as search_error:
+                if "RESOURCE_EXHAUSTED" not in str(search_error):
+                    raise
+                logger.warning(
+                    "Gemini: google_search недоступен на текущем тарифе, "
+                    "повторяем без поиска"
+                )
+                response = await self._call_with_retries(
+                    lambda: _generate(with_search=False)
+                )
 
             result_text = response.text
             score, comment = self._parse_evaluation(result_text)
